@@ -1,0 +1,265 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Basic</title>
+<style>
+body{margin:0;font:16px/1.4 sans-serif;background:#fff;color:#000}
+#bar{background:#3b5998;padding:5px}
+#bar a{color:#fff;margin-right:12px;font-weight:bold;text-decoration:none}
+#v{padding:6px 6px 60px;word-wrap:break-word}
+#v img{max-width:100%;height:auto}
+#v a{color:#1a3c8a}
+input,textarea,select,button{font-size:16px;max-width:96%;margin:2px 0}
+input:focus,textarea:focus,a:focus,button:focus{outline:3px solid #f90}
+#st{position:fixed;left:0;right:0;bottom:0;background:#222;color:#fff;padding:3px 6px;display:none;font-size:15px}
+.n{font-size:11px;color:#a00}
+</style></head><body>
+<div id="bar">
+<a href="#" data-act="home">0 Home</a><a href="#" data-act="back">* Back</a><a href="#" data-act="reload"># Reload</a><a href="#" data-act="set">Set</a>
+</div>
+<div id="v"></div>
+<div id="st"></div>
+<script>
+(function () {
+  var $ = function (i) { return document.getElementById(i); };
+  var enc = encodeURIComponent;
+
+  /* ---------- settings (kept in localStorage on the phone) ---------- */
+  var D = { api: "", key: "", jar: "", home: "", w: 240, q: 40, g: 0, im: 1, t9: 1 };
+  var S = {};
+  try { S = JSON.parse(localStorage.getItem("s") || "{}"); } catch (e) {}
+  for (var k in D) if (S[k] === undefined) S[k] = D[k];
+  function save() { localStorage.setItem("s", JSON.stringify(S)); }
+
+  var hist = [], cur = null, lastBtn = null;
+
+  /* ---------- page loading through the worker ---------- */
+  function go(u, m, b, noPush) {
+    if (!S.api) { settings(); return; }
+    $("v").textContent = "Loading...";
+    fetch(S.api, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" }, // text/plain avoids a CORS preflight
+      body: JSON.stringify({ key: S.key, u: u, m: m, b: b, jar: S.jar, w: S.im ? S.w : 0, q: S.q, g: S.g })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.err) { $("v").textContent = d.err; return; }
+      S.jar = d.jar; save();
+      if (cur && !noPush) hist.push(cur);
+      cur = d.url;
+      render(d.html);
+    }).catch(function (e) { $("v").textContent = "Error: " + e; });
+  }
+
+  /* ---------- render: sanitize again on the phone, number the links ---------- */
+  function render(h) {
+    var doc = new DOMParser().parseFromString(h, "text/html");
+    var bad = doc.querySelectorAll("script,style,iframe,object,embed,link,meta,svg");
+    for (var i = 0; i < bad.length; i++) bad[i].parentNode.removeChild(bad[i]);
+    var all = doc.getElementsByTagName("*");
+    for (i = 0; i < all.length; i++) {
+      var at = all[i].attributes;
+      for (var j = at.length - 1; j >= 0; j--) if (/^on/i.test(at[j].name)) all[i].removeAttribute(at[j].name);
+      if (all[i].type === "file") all[i].parentNode.removeChild(all[i]);
+    }
+    var v = $("v");
+    v.innerHTML = doc.body ? doc.body.innerHTML : "";
+    document.title = doc.title || "Basic";
+    var as = v.getElementsByTagName("a"), n = 0;
+    for (i = 0; i < as.length && n < 9; i++) {
+      if (as[i].getAttribute("href") && as[i].textContent.replace(/\s/g, "")) {
+        n++;
+        as[i].setAttribute("data-n", n);
+        var s = document.createElement("span");
+        s.className = "n"; s.textContent = n + " ";
+        as[i].insertBefore(s, as[i].firstChild);
+      }
+    }
+    window.scrollTo(0, 0);
+  }
+
+  /* ---------- settings screen ---------- */
+  function settings() {
+    function f(id, label, val, type) {
+      return "<p>" + label + "<br><input id='s_" + id + "' type='" + (type || "text") + "' value=\"" +
+        String(val).replace(/"/g, "&quot;") + "\"></p>";
+    }
+    function c(id, label, on) {
+      return "<p><label><input id='s_" + id + "' type='checkbox'" + (on ? " checked" : "") + "> " + label + "</label></p>";
+    }
+    $("v").innerHTML = "<h3>Settings</h3>" +
+      f("api", "Worker URL", S.api) + f("key", "Access key", S.key, "password") +
+      f("jar", "Cookies (optional, c_user=..; xs=..)", S.jar) + f("home", "Start page URL (blank = default)", S.home) +
+      c("im", "Load images", S.im) + f("w", "Image width (px)", S.w) + f("q", "Image quality (10-90)", S.q) +
+      c("g", "Grayscale images (smaller)", S.g) + c("t9", "Built-in T9 keyboard", S.t9) +
+      "<button type='button' data-act='save'>Save</button> <button type='button' data-act='logout'>Clear cookies</button>";
+  }
+  function saveSettings() {
+    S.api = $("s_api").value.trim(); S.key = $("s_key").value; S.jar = $("s_jar").value.trim();
+    S.home = $("s_home").value.trim(); S.im = $("s_im").checked ? 1 : 0;
+    S.w = +$("s_w").value || 240; S.q = +$("s_q").value || 40;
+    S.g = $("s_g").checked ? 1 : 0; S.t9 = $("s_t9").checked ? 1 : 0;
+    save(); home();
+  }
+  function home() { hist = []; cur = null; go(S.home || ""); }
+  function back() { if (hist.length) go(hist.pop(), "GET", null, 1); }
+  function reload() { if (cur) go(cur, "GET", null, 1); }
+
+  /* ---------- clicks and form submits ---------- */
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    while (t && t.nodeType === 1 && !/^(A|BUTTON|INPUT)$/.test(t.tagName)) t = t.parentNode;
+    if (!t || t.nodeType !== 1) return;
+    var act = t.getAttribute("data-act");
+    if (act) {
+      e.preventDefault();
+      if (act === "home") home(); else if (act === "back") back(); else if (act === "reload") reload();
+      else if (act === "set") settings(); else if (act === "save") saveSettings();
+      else if (act === "logout") { S.jar = ""; save(); $("s_jar").value = ""; }
+    } else if (t.tagName === "A") {
+      var h = t.getAttribute("href");
+      if (!h || h.charAt(0) === "#") return;
+      e.preventDefault();
+      go(h);
+    } else if (t.type === "submit" || t.type === "image" || t.tagName === "BUTTON") lastBtn = t;
+  });
+
+  document.addEventListener("submit", function (e) {
+    var f = e.target;
+    e.preventDefault();
+    var p = [];
+    for (var i = 0; i < f.elements.length; i++) {
+      var el = f.elements[i], t = el.type;
+      if (!el.name || el.disabled) continue;
+      if ((t === "checkbox" || t === "radio") && !el.checked) continue;
+      if (t === "submit" || t === "button" || t === "image" || t === "file") continue;
+      p.push(enc(el.name) + "=" + enc(el.value));
+    }
+    if (lastBtn && lastBtn.name) p.push(enc(lastBtn.name) + "=" + enc(lastBtn.value));
+    lastBtn = null;
+    var a = f.getAttribute("action") || cur, body = p.join("&");
+    if ((f.getAttribute("method") || "get").toLowerCase() === "post") go(a, "POST", body);
+    else go(a + (a.indexOf("?") < 0 ? "?" : "&") + body);
+  }, true);
+
+  /* ---------- T9 engine ---------- */
+  var M = { 2: "abc", 3: "def", 4: "ghi", 5: "jkl", 6: "mno", 7: "pqrs", 8: "tuv", 9: "wxyz" }, R = {};
+  for (var d in M) for (var x = 0; x < M[d].length; x++) R[M[d].charAt(x)] = d;
+
+  // Built-in starter words, most common first. Drop a bigger words.txt
+  // (one word per line, common first) next to index.html to extend it.
+  var W = ("the of and to a in is it you that he was for on are with as i his they be at one have this from or had by not but what all were we when your can said there use an each which she do how their if will up other about out many then them these so some her would make like him into time has look two more write go see no way could people my than first water been call who its now find long down day did get come made may part over new take only little work know place year live me back give most very after thing our just name good man think say great where help through much before right too any same tell boy want show also around form small set put end does another well large must big even such because here why ask went read need land different home us move try kind hand again change play away house point page letter mother answer found study still learn should world high every near add food between own below country plant last school father keep tree never start city earth eyes light thought head under story saw left few while along might close something seem next hard open begin life always those both paper together got group often run important until children side feet car night walk white sea took river four carry state once book hear stop without second later idea enough eat face watch far real almost let above girl sometimes mountain cut young talk soon list song leave family hello hi thanks thank please yes ok okay love hey text tomorrow today tonight morning sorry happy birthday meet lunch dinner busy free sure cool nice bye wait coming pick phone money going doing being").split(" ");
+  var IX = {}, seen = {}, UW = [];
+  try { UW = JSON.parse(localStorage.getItem("uw") || "[]"); } catch (e) {}
+  function addW(w, front) {
+    if (seen[w]) return;
+    var key = "";
+    for (var i = 0; i < w.length; i++) { var dg = R[w.charAt(i)]; if (!dg) return; key += dg; }
+    seen[w] = 1;
+    if (!IX[key]) IX[key] = [];
+    if (front) IX[key].unshift(w); else IX[key].push(w);
+  }
+  for (var i = 0; i < UW.length; i++) addW(UW[i], 1);
+  for (i = 0; i < W.length; i++) addW(W[i]);
+  fetch("words.txt").then(function (r) { return r.ok ? r.text() : ""; }).then(function (t) {
+    t.split(/\s+/).forEach(function (w) { if (w) addW(w.toLowerCase()); });
+  }).catch(function () {});
+
+  function cand(s) {
+    var c = (IX[s] || []).slice(0, 8);
+    if (c.length < 5) for (var k in IX) {
+      if (k.length > s.length && k.indexOf(s) === 0) { c = c.concat(IX[k].slice(0, 2)); if (c.length >= 8) break; }
+    }
+    return c;
+  }
+  function guess(s) { var g = ""; for (var i = 0; i < s.length; i++) g += M[s.charAt(i)].charAt(0); return g; }
+
+  var el, seq = "", ci = 0, cs = [], st0 = 0, ln = 0, mode = 0, tk = "", ti = 0, tt = 0;
+  var MODES = ["T9", "abc", "ABC", "123"];
+
+  function status() {
+    var s = $("st"); s.style.display = "block";
+    s.textContent = MODES[mode] + (seq ? "  " + cs.map(function (w, i) { return i === ci ? "[" + w + "]" : w; }).join(" ") : "") +
+      "   # mode  * next  0 space";
+  }
+  function put(t) { // replace the text currently being composed
+    el.value = el.value.slice(0, st0) + t + el.value.slice(st0 + ln);
+    ln = t.length;
+    el.setSelectionRange(st0 + ln, st0 + ln);
+  }
+  function commit() { seq = ""; cs = []; ln = 0; tk = ""; }
+  function ins(ch) {
+    commit();
+    var p = el.selectionStart;
+    el.value = el.value.slice(0, p) + ch + el.value.slice(el.selectionEnd);
+    el.setSelectionRange(p + ch.length, p + ch.length);
+  }
+  function fmt(w) { // capitalise at the start of a sentence
+    var b = el.value.slice(0, st0);
+    return (!b || /[.!?]\s+$/.test(b)) ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+  }
+  function tap(key, chars, up) { // classic multi-tap
+    var now = +new Date();
+    if (tk === key && now - tt < 900 && ln) ti = (ti + 1) % chars.length;
+    else { commit(); tk = key; ti = 0; st0 = el.selectionStart; ln = 0; }
+    tt = now;
+    var c = chars.charAt(ti);
+    put(up ? c.toUpperCase() : c);
+  }
+  function learn() { // remember words typed in multi-tap mode
+    var m = /([a-z]{2,})$/i.exec(el.value.slice(0, el.selectionStart));
+    if (m) { var w = m[1].toLowerCase(); if (!seen[w]) { addW(w, 1); UW.push(w); localStorage.setItem("uw", JSON.stringify(UW.slice(-500))); } }
+  }
+
+  function t9key(e, x) {
+    el = x;
+    var k = e.key;
+    if (k === "Backspace" || k === "Clear") {
+      if (seq) {
+        e.preventDefault();
+        seq = seq.slice(0, -1);
+        if (seq) { cs = cand(seq); ci = 0; put(fmt(cs[0] || guess(seq))); } else { put(""); cs = []; }
+        status();
+      } else { tk = ""; ln = 0; }
+      return;
+    }
+    if (!(k.length === 1 && "0123456789*#".indexOf(k) >= 0)) { if (k.length > 1) commit(); return; }
+    e.preventDefault();
+    if (k === "#") { commit(); mode = (mode + 1) % 4; status(); return; }
+    if (mode === 3) { ins(k); return; }
+    if (k === "0") { if (mode) learn(); ins(" "); status(); return; }
+    if (k === "1") { tap("1", ".,?!'-@:/1", 0); status(); return; }
+    if (k === "*") {
+      if (seq && cs.length > 1) { ci = (ci + 1) % cs.length; put(fmt(cs[ci])); }
+      else tap("*", "*+=()&%;\"_", 0);
+      status(); return;
+    }
+    if (mode === 0) {
+      if (!seq) { commit(); st0 = el.selectionStart; ln = 0; }
+      seq += k; cs = cand(seq); ci = 0;
+      put(fmt(cs[0] || guess(seq)));
+    } else tap(k, M[k] + k, mode === 2);
+    status();
+  }
+
+  function isText(t) {
+    return /^(INPUT|TEXTAREA)$/.test(t.tagName) && !/^(submit|button|checkbox|radio|image|file|hidden)$/.test(t.type);
+  }
+  document.addEventListener("keydown", function (e) {
+    var t = e.target;
+    if (isText(t)) { if (S.t9) t9key(e, t); return; }
+    var k = e.key;
+    if (k.length !== 1) return;
+    if (k >= "1" && k <= "9") {
+      var a = document.querySelector('a[data-n="' + k + '"]');
+      if (a) { e.preventDefault(); go(a.getAttribute("href")); }
+    } else if (k === "0") home();
+    else if (k === "*") back();
+    else if (k === "#") reload();
+  });
+  document.addEventListener("focus", function (e) { if (S.t9 && isText(e.target)) { el = e.target; commit(); status(); } }, true);
+  document.addEventListener("blur", function () { commit(); $("st").style.display = "none"; }, true);
+
+  if (S.api) home(); else settings();
+})();
+</script>
+</body></html>
