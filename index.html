@@ -15,7 +15,7 @@ input:focus,textarea:focus,a:focus,button:focus{outline:3px solid #f90}
 .n{font-size:11px;color:#a00}
 </style></head><body>
 <div id="bar">
-<a href="#" data-act="home">0 Home</a><a href="#" data-act="back">* Back</a><a href="#" data-act="reload"># Reload</a><a href="#" data-act="set">Set</a>
+<a href="#" data-act="home">0 Home</a><a href="#" data-act="back">* Back</a><a href="#" data-act="reload"># Reload</a>
 </div>
 <div id="v"></div>
 <div id="st"></div>
@@ -24,26 +24,22 @@ input:focus,textarea:focus,a:focus,button:focus{outline:3px solid #f90}
   var $ = function (i) { return document.getElementById(i); };
   var enc = encodeURIComponent;
 
-  /* ---------- settings (kept in localStorage on the phone) ---------- */
-  var D = { api: "", key: "", jar: "", home: "", w: 240, q: 40, g: 0, im: 1, t9: 1 };
-  var S = {};
-  try { S = JSON.parse(localStorage.getItem("s") || "{}"); } catch (e) {}
-  for (var k in D) if (S[k] === undefined) S[k] = D[k];
-  function save() { localStorage.setItem("s", JSON.stringify(S)); }
+  // EDIT THESE: your Worker URL and image settings (width px, jpeg quality, grayscale, images on, built-in T9 on)
+  var API = "https://fbasic.flameturag.workers.dev/", W_PX = 240, QUAL = 40, GRAY = 0, IMAGES = 1, T9 = 1;
+  var jar = localStorage.getItem("jar") || ""; // login cookies, kept on this phone
 
   var hist = [], cur = null, lastBtn = null;
 
   /* ---------- page loading through the worker ---------- */
   function go(u, m, b, noPush) {
-    if (!S.api) { settings(); return; }
     $("v").textContent = "Loading...";
-    fetch(S.api, {
+    fetch(API, {
       method: "POST",
       headers: { "Content-Type": "text/plain" }, // text/plain avoids a CORS preflight
-      body: JSON.stringify({ key: S.key, u: u, m: m, b: b, jar: S.jar, w: S.im ? S.w : 0, q: S.q, g: S.g })
+      body: JSON.stringify({ u: u, m: m, b: b, jar: jar, w: IMAGES ? W_PX : 0, q: QUAL, g: GRAY })
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (d.err) { $("v").textContent = d.err; return; }
-      S.jar = d.jar; save();
+      jar = d.jar; localStorage.setItem("jar", jar);
       if (cur && !noPush) hist.push(cur);
       cur = d.url;
       render(d.html);
@@ -77,30 +73,7 @@ input:focus,textarea:focus,a:focus,button:focus{outline:3px solid #f90}
     window.scrollTo(0, 0);
   }
 
-  /* ---------- settings screen ---------- */
-  function settings() {
-    function f(id, label, val, type) {
-      return "<p>" + label + "<br><input id='s_" + id + "' type='" + (type || "text") + "' value=\"" +
-        String(val).replace(/"/g, "&quot;") + "\"></p>";
-    }
-    function c(id, label, on) {
-      return "<p><label><input id='s_" + id + "' type='checkbox'" + (on ? " checked" : "") + "> " + label + "</label></p>";
-    }
-    $("v").innerHTML = "<h3>Settings</h3>" +
-      f("api", "Worker URL", S.api) + f("key", "Access key", S.key, "password") +
-      f("jar", "Cookies (optional, c_user=..; xs=..)", S.jar) + f("home", "Start page URL (blank = default)", S.home) +
-      c("im", "Load images", S.im) + f("w", "Image width (px)", S.w) + f("q", "Image quality (10-90)", S.q) +
-      c("g", "Grayscale images (smaller)", S.g) + c("t9", "Built-in T9 keyboard", S.t9) +
-      "<button type='button' data-act='save'>Save</button> <button type='button' data-act='logout'>Clear cookies</button>";
-  }
-  function saveSettings() {
-    S.api = $("s_api").value.trim(); S.key = $("s_key").value; S.jar = $("s_jar").value.trim();
-    S.home = $("s_home").value.trim(); S.im = $("s_im").checked ? 1 : 0;
-    S.w = +$("s_w").value || 240; S.q = +$("s_q").value || 40;
-    S.g = $("s_g").checked ? 1 : 0; S.t9 = $("s_t9").checked ? 1 : 0;
-    save(); home();
-  }
-  function home() { hist = []; cur = null; go(S.home || ""); }
+  function home() { hist = []; cur = null; go(""); }
   function back() { if (hist.length) go(hist.pop(), "GET", null, 1); }
   function reload() { if (cur) go(cur, "GET", null, 1); }
 
@@ -113,8 +86,6 @@ input:focus,textarea:focus,a:focus,button:focus{outline:3px solid #f90}
     if (act) {
       e.preventDefault();
       if (act === "home") home(); else if (act === "back") back(); else if (act === "reload") reload();
-      else if (act === "set") settings(); else if (act === "save") saveSettings();
-      else if (act === "logout") { S.jar = ""; save(); $("s_jar").value = ""; }
     } else if (t.tagName === "A") {
       var h = t.getAttribute("href");
       if (!h || h.charAt(0) === "#") return;
@@ -145,8 +116,7 @@ input:focus,textarea:focus,a:focus,button:focus{outline:3px solid #f90}
   var M = { 2: "abc", 3: "def", 4: "ghi", 5: "jkl", 6: "mno", 7: "pqrs", 8: "tuv", 9: "wxyz" }, R = {};
   for (var d in M) for (var x = 0; x < M[d].length; x++) R[M[d].charAt(x)] = d;
 
-  // Built-in starter words, most common first. Drop a bigger words.txt
-  // (one word per line, common first) next to index.html to extend it.
+  // Starter words, most common first; words typed in abc mode are learned.
   var W = ("the of and to a in is it you that he was for on are with as i his they be at one have this from or had by not but what all were we when your can said there use an each which she do how their if will up other about out many then them these so some her would make like him into time has look two more write go see no way could people my than first water been call who its now find long down day did get come made may part over new take only little work know place year live me back give most very after thing our just name good man think say great where help through much before right too any same tell boy want show also around form small set put end does another well large must big even such because here why ask went read need land different home us move try kind hand again change play away house point page letter mother answer found study still learn should world high every near add food between own below country plant last school father keep tree never start city earth eyes light thought head under story saw left few while along might close something seem next hard open begin life always those both paper together got group often run important until children side feet car night walk white sea took river four carry state once book hear stop without second later idea enough eat face watch far real almost let above girl sometimes mountain cut young talk soon list song leave family hello hi thanks thank please yes ok okay love hey text tomorrow today tonight morning sorry happy birthday meet lunch dinner busy free sure cool nice bye wait coming pick phone money going doing being").split(" ");
   var IX = {}, seen = {}, UW = [];
   try { UW = JSON.parse(localStorage.getItem("uw") || "[]"); } catch (e) {}
@@ -160,9 +130,6 @@ input:focus,textarea:focus,a:focus,button:focus{outline:3px solid #f90}
   }
   for (var i = 0; i < UW.length; i++) addW(UW[i], 1);
   for (i = 0; i < W.length; i++) addW(W[i]);
-  fetch("words.txt").then(function (r) { return r.ok ? r.text() : ""; }).then(function (t) {
-    t.split(/\s+/).forEach(function (w) { if (w) addW(w.toLowerCase()); });
-  }).catch(function () {});
 
   function cand(s) {
     var c = (IX[s] || []).slice(0, 8);
@@ -246,7 +213,7 @@ input:focus,textarea:focus,a:focus,button:focus{outline:3px solid #f90}
   }
   document.addEventListener("keydown", function (e) {
     var t = e.target;
-    if (isText(t)) { if (S.t9) t9key(e, t); return; }
+    if (isText(t)) { if (T9) t9key(e, t); return; }
     var k = e.key;
     if (k.length !== 1) return;
     if (k >= "1" && k <= "9") {
@@ -256,10 +223,10 @@ input:focus,textarea:focus,a:focus,button:focus{outline:3px solid #f90}
     else if (k === "*") back();
     else if (k === "#") reload();
   });
-  document.addEventListener("focus", function (e) { if (S.t9 && isText(e.target)) { el = e.target; commit(); status(); } }, true);
+  document.addEventListener("focus", function (e) { if (T9 && isText(e.target)) { el = e.target; commit(); status(); } }, true);
   document.addEventListener("blur", function () { commit(); $("st").style.display = "none"; }, true);
 
-  if (S.api) home(); else settings();
+  home();
 })();
 </script>
 </body></html>
